@@ -1,0 +1,6 @@
+# Generated build folders
+build/
+build-*/
+
+# Generated demo output
+workspace/notes/summary.txt
