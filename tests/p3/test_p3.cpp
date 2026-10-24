@@ -38,6 +38,16 @@ private:
     JsonValue   schema_;   // an empty JSON object: {}
 };
 
+// Test-only tool: record when its destructor runs.
+class CountingTool : public NamedTool {
+public:
+    CountingTool(std::string name, int& destructions)
+        : NamedTool(std::move(name)), destructions_(destructions) {}
+    ~CountingTool() override { ++destructions_; }
+private:
+    int& destructions_;
+};
+
 // Tokenize with the provided tokenizer, then run YOUR calc_evaluate.
 bool eval(const std::string& expr, double* value, std::string* error) {
     std::vector<CalcToken> tokens;
@@ -194,6 +204,118 @@ TEST(reg_max_probe_length_collisions) {
     while (ToolRegistry::hash(other) % buckets == target) other += "x";
     REQUIRE(r.add(std::make_unique<NamedTool>(other)));
     CHECK(r.max_probe_length() == 3);
+}
+
+TEST(reg_null_rejected) {
+    ToolRegistry r;
+    const std::size_t initial_buckets = r.bucket_count();
+
+    // Reject a null pointer when the registry is empty.
+    CHECK(!r.add(nullptr));
+    CHECK(r.size() == 0);
+    CHECK(r.bucket_count() == initial_buckets);
+    CHECK(r.find("alpha") == nullptr);
+
+    // Reject it without disturbing a tool that is already registered.
+    auto tool = std::make_unique<NamedTool>("alpha");
+    Tool* original = tool.get();
+    REQUIRE(r.add(std::move(tool)));
+    CHECK(!r.add(nullptr));
+    CHECK(r.size() == 1);
+    CHECK(r.bucket_count() == initial_buckets);
+    CHECK(r.find("alpha") == original);
+}
+
+TEST(reg_10000_tools) {
+    ToolRegistry r;
+    Tool* first = nullptr;
+    constexpr std::size_t count = 10000;
+
+    for (std::size_t i = 0; i < count; ++i) {
+        auto tool = std::make_unique<NamedTool>("tool_" + std::to_string(i));
+        if (i == 0) first = tool.get();
+        REQUIRE(r.add(std::move(tool)));
+        CHECK(r.size() == i + 1);
+        CHECK(r.load_factor() <= 1.0);
+    }
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::string name = "tool_" + std::to_string(i);
+        Tool* found = r.find(name);
+        REQUIRE(found != nullptr);
+        CHECK(found->name() == name);
+    }
+    CHECK(r.find("tool_0") == first);
+    CHECK(r.find("tool_10000") == nullptr);
+    CHECK(r.size() == count);
+    const std::size_t longest = r.max_probe_length();
+    CHECK(longest <= 64);
+    std::printf("10000 tools: buckets=%zu, load_factor=%.6f, max_probe_length=%zu\n",
+                r.bucket_count(), r.load_factor(), longest);
+}
+
+TEST(reg_alternative_hash) {
+    ToolRegistry r;
+    constexpr std::size_t count = 10000;
+    for (std::size_t i = 0; i < count; ++i) {
+        REQUIRE(r.add(std::make_unique<NamedTool>("tool_" + std::to_string(i))));
+    }
+
+    // Simulate the weak hash using counts, not a second registry.
+    std::vector<int> weak_counts(r.bucket_count(), 0);
+    for (std::size_t i = 0; i < count; ++i) {
+        const std::string name = "tool_" + std::to_string(i);
+        const std::size_t weak_hash =
+            static_cast<unsigned char>(name[0]) + name.size();
+        ++weak_counts[weak_hash % weak_counts.size()];
+    }
+    int weak_longest = 0;
+    std::size_t total = 0;
+    for (int entries : weak_counts) {
+        if (entries > weak_longest) weak_longest = entries;
+        total += static_cast<std::size_t>(entries);
+    }
+
+    CHECK(total == count);
+    // tool_1000 through tool_9999 all start with 't' and have length 9.
+    CHECK(weak_longest == 9000);
+    CHECK(r.max_probe_length() <= 64);
+    std::printf("Hash comparison: tools=%zu, buckets=%zu, load_factor=%.6f, "
+                "real_longest=%zu, weak_longest=%d\n",
+                count, r.bucket_count(), r.load_factor(),
+                r.max_probe_length(), weak_longest);
+}
+
+TEST(reg_ownership_cleanup) {
+    // Counters outlive the registry; never resize this vector while tools refer to it.
+    std::vector<int> destructions(33, 0);
+    int duplicate_destructions = 0;
+    {
+        ToolRegistry r;
+        const std::size_t initial_buckets = r.bucket_count();
+        auto first = std::make_unique<CountingTool>("owned_0", destructions[0]);
+        Tool* original = first.get();
+        REQUIRE(r.add(std::move(first)));
+        CHECK(first == nullptr);
+        CHECK(destructions[0] == 0);
+
+        CHECK(!r.add(std::make_unique<CountingTool>("owned_0", duplicate_destructions)));
+        CHECK(duplicate_destructions == 1);
+        CHECK(destructions[0] == 0);
+        CHECK(r.size() == 1);
+        CHECK(r.find("owned_0") == original);
+
+        for (std::size_t i = 1; i < destructions.size(); ++i) {
+            REQUIRE(r.add(std::make_unique<CountingTool>(
+                "owned_" + std::to_string(i), destructions[i])));
+        }
+        CHECK(r.bucket_count() > initial_buckets);
+        CHECK(r.find("owned_0") == original);
+        for (int count : destructions) CHECK(count == 0);
+    } // Leaving this scope destroys the registry and every tool it owns.
+
+    for (int count : destructions) CHECK(count == 1);
+    CHECK(duplicate_destructions == 1);
 }
 
 int main(int argc, char** argv) { return mt::run_all(argc, argv); }
