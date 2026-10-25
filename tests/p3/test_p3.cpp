@@ -318,4 +318,93 @@ TEST(reg_ownership_cleanup) {
     CHECK(duplicate_destructions == 1);
 }
 
+TEST(ws_rejects_empty_path) {
+    TempDir d;
+    Workspace ws(d.path());
+    fs::path out;
+    std::string reason;
+    CHECK(!ws.resolve("", &out, &reason));
+    CHECK(reason == "empty path");
+}
+
+TEST(ws_rejects_embedded_nul) {
+    TempDir d;
+    Workspace ws(d.path());
+    fs::path out;
+    std::string reason;
+    const std::string path = std::string("notes") + '\0' + "/x";
+    CHECK(!ws.resolve(path, &out, &reason));
+    CHECK(reason == "path contains NUL");
+}
+
+TEST(ws_rejects_absolute_paths) {
+    TempDir d;
+    Workspace ws(d.path());
+    fs::path out;
+    std::string reason;
+    CHECK(!ws.resolve("/etc/passwd", &out, &reason));
+    CHECK(reason == "path must be relative to workspace");
+    reason.clear();
+    CHECK(!ws.resolve("/", &out, &reason));
+    CHECK(reason == "path must be relative to workspace");
+
+    // Even an absolute path pointing inside the workspace is not valid input.
+    const std::string inside = (ws.root() / "notes" / "todo.txt").string();
+    reason.clear();
+    CHECK(!ws.resolve(inside, &out, &reason));
+    CHECK(reason == "path must be relative to workspace");
+}
+
+TEST(ws_normalizes_safe_paths) {
+    TempDir d;
+    Workspace ws(d.path());
+    struct Case { const char* input; const char* relative; };
+    const Case cases[] = {
+        {"notes/todo.txt", "notes/todo.txt"},
+        {"./notes//todo.txt", "notes/todo.txt"},
+        {"a/../b", "b"},
+        {"my..notes.txt", "my..notes.txt"}
+    };
+    for (const auto& c : cases) {
+        fs::path out;
+        std::string reason = "previous error";
+        REQUIRE(ws.resolve(c.input, &out, &reason));
+        CHECK(out == ws.root() / c.relative);
+        CHECK(reason.empty());
+    }
+}
+
+TEST(ws_normalizes_to_root) {
+    TempDir d;
+    Workspace ws(d.path());
+    for (const char* input : {".", "a/.."}) {
+        fs::path out;
+        std::string reason;
+        REQUIRE(ws.resolve(input, &out, &reason));
+        CHECK(out == ws.root());
+    }
+}
+
+TEST(ws_accepts_nonexistent_path_without_creating_it) {
+    TempDir d;
+    Workspace ws(d.path());
+    fs::path out;
+    std::string reason;
+    REQUIRE(ws.resolve("new/dir/file.txt", &out, &reason));
+    CHECK(out == ws.root() / "new/dir/file.txt");
+    CHECK(!fs::exists(ws.root() / "new")); // Only the test inspects the filesystem.
+}
+
+TEST(ws_rejects_normalized_parent_escapes) {
+    TempDir d;
+    Workspace ws(d.path() / "ws");
+    for (const char* input : {"..", "../etc/passwd", "a/../../b",
+                              "notes/../../ws/notes/todo.txt"}) {
+        fs::path out;
+        std::string reason;
+        CHECK(!ws.resolve(input, &out, &reason));
+        CHECK(reason == "path escapes workspace");
+    }
+}
+
 int main(int argc, char** argv) { return mt::run_all(argc, argv); }

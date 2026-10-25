@@ -9,8 +9,40 @@
 
 namespace fs = std::filesystem;
 
-bool Workspace::resolve(std::string_view /*user_path*/, fs::path* /*out*/,
+bool Workspace::resolve(std::string_view user_path, fs::path* out,
                         std::string* reason) const {
-    *reason = "Workspace::resolve not implemented yet";   // TODO
-    return false;
+    if (user_path.empty()) {
+        *reason = "empty path";
+        return false;
+    }
+    if (user_path.find('\0') != std::string_view::npos) {
+        *reason = "path contains NUL";
+        return false;
+    }
+
+    try {
+        const fs::path p{std::string(user_path)};
+        if (p.is_absolute() || p.has_root_path()) {
+            *reason = "path must be relative to workspace";
+            return false;
+        }
+
+        const fs::path normalized = p.lexically_normal();
+        // After normalization, a leading parent component would escape the root.
+        if (normalized.begin() != normalized.end() && *normalized.begin() == "..") {
+            *reason = "path escapes workspace";
+            return false;
+        }
+
+        if (normalized == ".") {
+            *out = root();
+        } else {
+            *out = root() / normalized;
+        }
+        reason->clear();
+        return true;
+    } catch (const fs::filesystem_error&) {
+        *reason = "invalid path";
+        return false;
+    }
 }
