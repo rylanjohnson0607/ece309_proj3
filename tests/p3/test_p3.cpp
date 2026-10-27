@@ -407,4 +407,115 @@ TEST(ws_rejects_normalized_parent_escapes) {
     }
 }
 
+TEST(calc_subtraction_left_to_right) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("10 - 4 - 3", &value, &error));
+    CHECK(value == 3);
+}
+
+TEST(calc_division_left_to_right) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("100 / 10 / 5", &value, &error));
+    CHECK(value == 2);
+}
+
+TEST(calc_parentheses_override_precedence) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("(2 + 3) * 4", &value, &error));
+    CHECK(value == 20);
+}
+
+TEST(calc_worked_trace) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("2 * (3 + 4) - 5", &value, &error));
+    CHECK(value == 9);
+}
+
+TEST(calc_negative_numbers) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("-3 * -3", &value, &error));
+    CHECK(value == 9);
+    REQUIRE(eval("2 * -3", &value, &error));
+    CHECK(value == -6);
+}
+
+TEST(calc_fractional_results_and_decimals) {
+    double value = 0;
+    std::string error;
+    REQUIRE(eval("7 / 2", &value, &error));
+    CHECK(value == 3.5);
+    REQUIRE(eval("1.25 + 2.5 * 2", &value, &error));
+    CHECK(value == 6.25); // These fractions are exactly representable in binary.
+}
+
+TEST(calc_computed_division_by_zero) {
+    double value = 0;
+    std::string error;
+    CHECK(!eval("1 / (2 - 2)", &value, &error));
+    CHECK(error == "division by zero");
+}
+
+TEST(calc_extra_expressions) {
+    double value = 0;
+    std::string error;
+
+    REQUIRE(eval("3 * 3", &value, &error));
+    CHECK(value == 9);
+
+    REQUIRE(eval("3 * 3 * (3 / 3)", &value, &error));
+    CHECK(value == 9);
+
+    REQUIRE(eval("(3 * 3 * 3 * 3)", &value, &error));
+    CHECK(value == 81);
+
+    REQUIRE(eval("55", &value, &error));
+    CHECK(value == 55);
+}
+
+TEST(calc_long_addition_chain) {
+    constexpr std::size_t terms = 20000;
+    std::string expression = "1";
+    for (std::size_t i = 1; i < terms; ++i) expression += "+1";
+    double value = 0;
+    std::string error;
+    REQUIRE(eval(expression, &value, &error));
+    CHECK(value == static_cast<double>(terms));
+}
+
+TEST(calc_deeply_nested_parentheses) {
+    const std::string expression = std::string( 5000, '(' ) + "2+3" + std::string( 5000, ')' );
+    double value = 0;
+    std::string error;
+    REQUIRE(eval(expression, &value, &error));
+    CHECK(value == 5);
+}
+
+TEST(calc_rejects_malformed_tokens) {
+    using Kind = CalcToken::Kind;
+    // Bypass the tokenizer: otherwise it would reject these before the evaluator.
+    const std::vector<std::vector<CalcToken>> cases = {
+        {},
+        {{Kind::Plus, 0}},
+        {{Kind::Number, 3}, {Kind::Plus, 0}},
+        {{Kind::Number, 3}, {Kind::Number, 4}},
+        {{Kind::LParen, 0}, {Kind::RParen, 0}},
+        {{Kind::LParen, 0}, {Kind::Number, 3}},
+        {{Kind::Number, 3}, {Kind::RParen, 0}},
+        {{Kind::RParen, 0}, {Kind::Number, 3}, {Kind::LParen, 0}},
+        {{Kind::Number, 3}, {Kind::Times, 0}, {Kind::Divide, 0}, {Kind::Number, 2}},
+        {{Kind::Number, 3}, {Kind::LParen, 0}, {Kind::Number, 2}, {Kind::RParen, 0}}
+    };
+    for (const auto& tokens : cases) {
+        double value = 0;
+        std::string error;
+        CHECK(!calc_evaluate(tokens, &value, &error));
+        CHECK(!error.empty());
+    }
+}
+
 int main(int argc, char** argv) { return mt::run_all(argc, argv); }
