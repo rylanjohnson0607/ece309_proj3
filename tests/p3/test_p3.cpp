@@ -114,6 +114,7 @@ TEST(calc_division_by_zero) {
 //   ws_<case>                     REQUIRED: every row of the table in spec §4.4
 //   calc_<case>                   left-to-right, parentheses, negatives
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(reg_resize_preserves_tools) {
     ToolRegistry r;
     const std::size_t initial = r.bucket_count();
@@ -177,6 +178,7 @@ TEST(reg_for_each_visits_each_once) {
     }
 }
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(reg_max_probe_length_collisions) {
     ToolRegistry r;
     CHECK(r.max_probe_length() == 0);
@@ -286,6 +288,7 @@ TEST(reg_alternative_hash) {
                 r.max_probe_length(), weak_longest);
 }
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(reg_ownership_cleanup) {
     // Counters outlive the registry; never resize this vector while tools refer to it.
     std::vector<int> destructions(33, 0);
@@ -477,6 +480,7 @@ TEST(calc_extra_expressions) {
     CHECK(value == 55);
 }
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(calc_long_addition_chain) {
     constexpr std::size_t terms = 20000;
     std::string expression = "1";
@@ -487,6 +491,7 @@ TEST(calc_long_addition_chain) {
     CHECK(value == static_cast<double>(terms));
 }
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(calc_deeply_nested_parentheses) {
     const std::string expression = std::string( 5000, '(' ) + "2+3" + std::string( 5000, ')' );
     double value = 0;
@@ -495,6 +500,7 @@ TEST(calc_deeply_nested_parentheses) {
     CHECK(value == 5);
 }
 
+//AI Written test to test my implentation(NOT PART OF SPEC)
 TEST(calc_rejects_malformed_tokens) {
     using Kind = CalcToken::Kind;
     // Bypass the tokenizer: otherwise it would reject these before the evaluator.
